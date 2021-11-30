@@ -2,6 +2,7 @@
 
 use std::convert::TryInto;
 use std::os::raw::c_int;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use backtrace::Frame;
 use nix::sys::signal;
@@ -20,6 +21,8 @@ use crate::{MAX_DEPTH, MAX_THREAD_NAME};
 lazy_static::lazy_static! {
     pub(crate) static ref PROFILER: RwLock<Result<Profiler>> = RwLock::new(Profiler::new());
 }
+
+thread_local!(static RUNNING: AtomicBool = AtomicBool::new(false));
 
 pub struct Profiler {
     pub(crate) data: Collector<UnresolvedFrames>,
@@ -102,13 +105,15 @@ impl ProfilerGuardBuilder {
                     profiler.blocklist_segments = self.blocklist_segments;
                 }
 
-                match profiler.start() {
-                    Ok(()) => Ok(ProfilerGuard::<'static> {
+                let _ = profiler.start();
+                //match profiler.start() {
+                //Ok(()) =>
+                    Ok(ProfilerGuard::<'static> {
                         profiler: &PROFILER,
                         timer: Some(Timer::new(self.frequency)),
-                    }),
-                    Err(err) => Err(err),
-                }
+                    })
+                //    Err(err) => Err(err),
+                //}
             }
         }
     }
@@ -134,6 +139,22 @@ impl ProfilerGuard<'_> {
     /// Generate a report
     pub fn report(&self) -> ReportBuilder {
         ReportBuilder::new(self.profiler)
+    }
+
+    pub fn stop(&self) {
+        RUNNING.with(|running| running.store(false, Ordering::Relaxed));
+    }
+
+    pub fn start(&self) {
+        RUNNING.with(|running| running.store(true, Ordering::Relaxed));
+    }
+    
+    pub fn reset(&self) -> Result<()> {
+        if let Ok(profiler) = self.profiler.write().as_mut() {
+            profiler.data = Collector::new()?;
+            profiler.sample_counter = 0;
+        }
+        Ok(())
     }
 }
 
@@ -202,6 +223,10 @@ extern "C" fn perf_signal_handler(
     _siginfo: *mut libc::siginfo_t,
     ucontext: *mut libc::c_void,
 ) {
+    if !RUNNING.with(|running| running.load(Ordering::Relaxed)) {
+        return;
+    }
+    
     if let Some(mut guard) = PROFILER.try_write() {
         if let Ok(profiler) = guard.as_mut() {
             #[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64")))]
@@ -295,6 +320,7 @@ impl Profiler {
     pub fn start(&mut self) -> Result<()> {
         log::info!("starting cpu profiler");
         if self.running {
+            self.register_signal_handler()?;
             Err(Error::Running)
         } else {
             self.register_signal_handler()?;
@@ -315,9 +341,6 @@ impl Profiler {
     pub fn stop(&mut self) -> Result<()> {
         log::info!("stopping cpu profiler");
         if self.running {
-            self.unregister_signal_handler()?;
-            self.init()?;
-
             Ok(())
         } else {
             Err(Error::NotRunning)
@@ -328,17 +351,17 @@ impl Profiler {
         let handler = signal::SigHandler::SigAction(perf_signal_handler);
         let sigaction = signal::SigAction::new(
             handler,
-            signal::SaFlags::SA_SIGINFO,
+            signal::SaFlags::SA_SIGINFO.union(signal::SaFlags::SA_RESTART),
             signal::SigSet::empty(),
         );
-        unsafe { signal::sigaction(signal::SIGPROF, &sigaction) }?;
+        unsafe { signal::sigaction(signal::SIGALRM, &sigaction) }?;
 
         Ok(())
     }
 
     fn unregister_signal_handler(&self) -> Result<()> {
         let handler = signal::SigHandler::SigIgn;
-        unsafe { signal::signal(signal::SIGPROF, handler) }?;
+        unsafe { signal::signal(signal::SIGALRM, handler) }?;
 
         Ok(())
     }

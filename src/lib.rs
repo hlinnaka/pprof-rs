@@ -49,7 +49,7 @@ mod error;
 mod frames;
 mod profiler;
 mod report;
-mod timer;
+pub mod timer;
 
 pub use self::collector::{Collector, HashCounter};
 pub use self::error::{Error, Result};
