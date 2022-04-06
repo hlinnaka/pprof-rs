@@ -105,7 +105,7 @@ impl ProfilerGuardBuilder {
                     profiler.blocklist_segments = self.blocklist_segments;
                 }
 
-                let _ = profiler.start();
+                //let _ = profiler.start();
                 //match profiler.start() {
                 //Ok(()) =>
                     Ok(ProfilerGuard::<'static> {
