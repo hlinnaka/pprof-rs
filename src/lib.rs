@@ -55,6 +55,7 @@ pub use self::collector::{Collector, HashCounter};
 pub use self::error::{Error, Result};
 pub use self::frames::{Frames, Symbol};
 pub use self::profiler::{ProfilerGuard, ProfilerGuardBuilder};
+pub use self::profiler::{start_profiling, stop_profiling};
 pub use self::report::{Report, ReportBuilder};
 
 #[cfg(feature = "flamegraph")]

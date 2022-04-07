@@ -24,6 +24,14 @@ lazy_static::lazy_static! {
 
 thread_local!(static RUNNING: AtomicBool = AtomicBool::new(false));
 
+pub fn stop_profiling() {
+    RUNNING.with(|running| running.store(false, Ordering::Relaxed));
+}
+
+pub fn start_profiling() {
+    RUNNING.with(|running| running.store(true, Ordering::Relaxed));
+}
+
 pub struct Profiler {
     pub(crate) data: Collector<UnresolvedFrames>,
     sample_counter: i32,
@@ -52,6 +60,7 @@ impl Default for ProfilerGuardBuilder {
 }
 
 impl ProfilerGuardBuilder {
+
     pub fn frequency(self, frequency: c_int) -> Self {
         Self { frequency, ..self }
     }
@@ -105,15 +114,13 @@ impl ProfilerGuardBuilder {
                     profiler.blocklist_segments = self.blocklist_segments;
                 }
 
-                //let _ = profiler.start();
-                //match profiler.start() {
-                //Ok(()) =>
-                    Ok(ProfilerGuard::<'static> {
+                match profiler.start() {
+                    Ok(()) => Ok(ProfilerGuard::<'static> {
                         profiler: &PROFILER,
                         timer: Some(Timer::new(self.frequency)),
-                    })
-                //    Err(err) => Err(err),
-                //}
+                    }),
+                    Err(err) => Err(err),
+                }
             }
         }
     }
@@ -139,14 +146,6 @@ impl ProfilerGuard<'_> {
     /// Generate a report
     pub fn report(&self) -> ReportBuilder {
         ReportBuilder::new(self.profiler)
-    }
-
-    pub fn stop(&self) {
-        RUNNING.with(|running| running.store(false, Ordering::Relaxed));
-    }
-
-    pub fn start(&self) {
-        RUNNING.with(|running| running.store(true, Ordering::Relaxed));
     }
     
     pub fn reset(&self) -> Result<()> {
@@ -320,7 +319,6 @@ impl Profiler {
     pub fn start(&mut self) -> Result<()> {
         log::info!("starting cpu profiler");
         if self.running {
-            self.register_signal_handler()?;
             Err(Error::Running)
         } else {
             self.register_signal_handler()?;
@@ -341,6 +339,9 @@ impl Profiler {
     pub fn stop(&mut self) -> Result<()> {
         log::info!("stopping cpu profiler");
         if self.running {
+            self.unregister_signal_handler()?;
+            self.init()?;
+
             Ok(())
         } else {
             Err(Error::NotRunning)
