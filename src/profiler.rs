@@ -23,6 +23,7 @@ lazy_static::lazy_static! {
 }
 
 thread_local!(static RUNNING: AtomicBool = AtomicBool::new(false));
+thread_local!(static TIMER: Timer = Timer::new(1000));
 
 pub fn stop_profiling() {
     RUNNING.with(|running| running.store(false, Ordering::Relaxed));
@@ -30,6 +31,8 @@ pub fn stop_profiling() {
 
 pub fn start_profiling() {
     RUNNING.with(|running| running.store(true, Ordering::Relaxed));
+
+    TIMER.with(|_| { });
 }
 
 pub struct Profiler {
@@ -43,6 +46,7 @@ pub struct Profiler {
 }
 
 pub struct ProfilerGuardBuilder {
+    #[allow(dead_code)]
     frequency: c_int,
     #[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64")))]
     blocklist_segments: Vec<(usize, usize)>,
@@ -117,7 +121,7 @@ impl ProfilerGuardBuilder {
                 match profiler.start() {
                     Ok(()) => Ok(ProfilerGuard::<'static> {
                         profiler: &PROFILER,
-                        timer: Some(Timer::new(self.frequency)),
+                        //timer: Some(Timer::new(self.frequency)),
                     }),
                     Err(err) => Err(err),
                 }
@@ -129,7 +133,7 @@ impl ProfilerGuardBuilder {
 /// RAII structure used to stop profiling when dropped. It is the only interface to access profiler.
 pub struct ProfilerGuard<'a> {
     profiler: &'a RwLock<Result<Profiler>>,
-    timer: Option<Timer>,
+    //timer: Option<Timer>,
 }
 
 fn trigger_lazy() {
@@ -159,7 +163,7 @@ impl ProfilerGuard<'_> {
 
 impl<'a> Drop for ProfilerGuard<'a> {
     fn drop(&mut self) {
-        drop(self.timer.take());
+        //drop(self.timer.take());
 
         match self.profiler.write().as_mut() {
             Err(_) => {}
