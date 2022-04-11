@@ -32,6 +32,7 @@ pub fn stop_profiling() {
 pub fn start_profiling() {
     RUNNING.with(|running| running.store(true, Ordering::Relaxed));
 
+    /// make sure the timer has been initialized
     TIMER.with(|_| { });
 }
 
